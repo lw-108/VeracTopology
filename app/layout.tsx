@@ -1,12 +1,15 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { JetBrains_Mono } from 'next/font/google';
+import { Inter } from 'next/font/google';
 
-const mono = JetBrains_Mono({ subsets: ['latin'], weight: ['400', '600', '700'] });
+const inter = Inter({ subsets: ['latin'], weight: ['400', '500', '600', '700'] });
 
 export const metadata: Metadata = {
-  title: 'IoT Cyber Security Mesh — Sentinel Core',
-  description: 'Real-time IoT threat monitoring, network topology, AI security agents, and automated defense tools.',
+  title: 'Sentinel Core — Cybersecurity Topology Mesh',
+  description: 'Clean, interactive network topology and cyber security mesh console in light mode.',
+  icons: {
+    icon: '/icon.svg',
+  },
 };
 
 export default function RootLayout({
@@ -15,8 +18,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={mono.className} style={{ background: 'var(--bg)', color: 'var(--text)' }}>{children}</body>
+    <html lang="en" className="light">
+      <body className={inter.className} style={{ background: '#f8fafc', color: '#0f172a' }}>
+        {children}
+      </body>
     </html>
   );
 }

@@ -1,0 +1,292 @@
+================================================================================
+ GRAPHOS BACKEND DATABASE & ENVIRONMENT RUNBOOK (DB_Procedure.txt)
+ Project: IoT Cyber Security Mesh & Threat Topology (GraphOS)
+ Date: September 2, 2026 | Version: 1.0
+================================================================================
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+ 1. ENVIRONMENT CONFIGURATION & CONNECTION STRINGS
+ 2. POWERSHELL TERMINAL COMMANDS (CLI, SETUP, SCRIPTS)
+ 3. PSQL / COMMAND-LINE DATABASE ACCESS & AUTH MANAGEMENT
+ 4. SQL / DDL SCHEMA DEFINITIONS (TABLES, INDEXES, TRIGGERS)
+ 5. DATABASE SEEDING & PIPELINE COMMANDS
+ 6. VERIFICATION & QUERY CHECKS (DBeaver / PSQL)
+ 7. NEXT.JS DEV SERVER & RUNTIME HEALTH CHECKS
+ 8. TROUBLESHOOTING & COMMON ERROR FIXES
+
+================================================================================
+1. ENVIRONMENT CONFIGURATION & CONNECTION STRINGS
+================================================================================
+
+Configuration File: .env.local (in project root)
+
+--------------------------------------------------------------------------------
+[DATABASE_URL Format]
+DATABASE_URL=postgresql://<USERNAME>:<PASSWORD>@<HOST>:<PORT>/<DATABASE_NAME>
+
+[GraphOS Active Connection]
+DATABASE_URL=postgresql://graphos:Password@123@localhost:5432/graphos
+--------------------------------------------------------------------------------
+
+Key Parameters:
+  - Host:     localhost (127.0.0.1)
+  - Port:     5432
+  - Database: graphos
+  - Username: graphos
+  - Password: Password@123
+
+
+================================================================================
+2. POWERSHELL TERMINAL COMMANDS
+================================================================================
+
+Open Windows PowerShell (Run as Administrator if managing services):
+
+# ------------------------------------------------------------------------------
+# A. Check PostgreSQL Service Status
+# ------------------------------------------------------------------------------
+Get-Service -Name postgresql*
+
+# Restart PostgreSQL Service (if connection is refused):
+Restart-Service -Name "postgresql-x64-17"    # Replace 17 with your version (e.g. 15, 16, 17)
+
+# ------------------------------------------------------------------------------
+# B. Install Project Dependencies
+# ------------------------------------------------------------------------------
+npm install
+
+# ------------------------------------------------------------------------------
+# C. Execute Live Database Seeding Script
+# ------------------------------------------------------------------------------
+npx tsx scripts/seed-live.ts
+
+# ------------------------------------------------------------------------------
+# D. Start Next.js Development Server
+# ------------------------------------------------------------------------------
+npm run dev
+
+# ------------------------------------------------------------------------------
+# E. TypeScript Compilation & Lint Checks
+# ------------------------------------------------------------------------------
+npm run typecheck
+npm run lint
+
+
+================================================================================
+3. PSQL / COMMAND-LINE DATABASE ACCESS & AUTHENTICATION
+================================================================================
+
+Run these commands in PowerShell / CMD:
+
+# ------------------------------------------------------------------------------
+# A. Connect via psql as "postgres" Superuser
+# ------------------------------------------------------------------------------
+psql -h localhost -p 5432 -U postgres -d postgres
+
+# ------------------------------------------------------------------------------
+# B. Connect directly to "graphos" database as user "graphos"
+# ------------------------------------------------------------------------------
+psql -h localhost -p 5432 -U graphos -d graphos
+
+# ------------------------------------------------------------------------------
+# C. Reset / Create Role and Database (if starting from scratch)
+# ------------------------------------------------------------------------------
+-- Execute inside PSQL connected as postgres:
+
+-- 1. Create role if not exists
+CREATE ROLE graphos WITH LOGIN PASSWORD 'Password@123';
+
+-- 2. If role already exists, update password
+ALTER ROLE graphos WITH PASSWORD 'Password@123';
+
+-- 3. Grant superuser / creation permissions for development
+ALTER ROLE graphos WITH SUPERUSER CREATEDB CREATEROLE;
+
+-- 4. Create database
+CREATE DATABASE graphos OWNER graphos;
+
+-- 5. Grant all privileges on database
+GRANT ALL PRIVILEGES ON DATABASE graphos TO graphos;
+
+
+================================================================================
+4. SQL / DDL SCHEMA DEFINITIONS (Run in DBeaver / PSQL)
+================================================================================
+
+Execute the following complete schema in DBeaver SQL Editor or PSQL connected
+to database "graphos":
+
+--------------------------------------------------------------------------------
+-- 1. Create "entities" Table (Nodes / IoT Devices / Security Agents)
+--------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS entities (
+  id         TEXT PRIMARY KEY,
+  label      TEXT NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('core', 'pillar', 'agent', 'task', 'tool', 'human')),
+  val        INTEGER NOT NULL DEFAULT 10,
+  color      TEXT,
+  status     TEXT,
+  detail     TEXT,
+  metadata   JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for category-based filtering
+CREATE INDEX IF NOT EXISTS idx_entities_kind ON entities (kind);
+
+--------------------------------------------------------------------------------
+-- 2. Create "edges" Table (Graph Relationship Topology)
+--------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS edges (
+  id          SERIAL PRIMARY KEY,
+  source_id   TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  target_id   TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  rel_type    TEXT NOT NULL DEFAULT 'USES', -- COMMANDS | OVERSEES | USES | EXPLOITS
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Foreign Key Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_edges_source ON edges (source_id);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON edges (target_id);
+
+--------------------------------------------------------------------------------
+-- 3. Auto-update Trigger for "updated_at" Timestamp
+--------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_updated_at ON entities;
+CREATE TRIGGER set_updated_at
+  BEFORE UPDATE ON entities
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+
+================================================================================
+5. DATABASE SEEDING & PIPELINE EXECUTION
+================================================================================
+
+Run from the project root directory:
+
+# Primary Seeding Command:
+npx tsx scripts/seed-live.ts
+
+Expected Console Output:
+--------------------------------------------------------------------------------
+◇ injected env (1) from .env.local
+🌱 GraphOS Live Seed Script
+   DB: postgresql://graphos:***@123@localhost:5432/graphos
+
+📋 Bootstrapping database tables...
+  ✅ Tables ready: entities, edges
+
+📦 Seeding 28 entities...
+  ✅ 28 entities seeded
+
+🔗 Seeding 37 edges...
+  ✅ 37 edges seeded
+
+🎉 Seed complete!
+   entities table: 28 rows
+   edges table:    37 rows
+--------------------------------------------------------------------------------
+
+
+================================================================================
+6. VERIFICATION & QUERY CHECKS (DBeaver / PSQL)
+================================================================================
+
+Run these diagnostic queries to verify database integrity:
+
+-- 1. Check entity counts by category (Core, Pillar, Agent, Task, Tool, Human)
+SELECT kind, COUNT(*) AS count 
+FROM entities 
+GROUP BY kind 
+ORDER BY count DESC;
+
+-- Expected result:
+-- tool: 8 | task: 7 | agent: 6 | pillar: 5 | human: 2 | core: 1 (Total: 28)
+
+-- 2. Check relationship edge counts by type
+SELECT rel_type, COUNT(*) AS count 
+FROM edges 
+GROUP BY rel_type 
+ORDER BY count DESC;
+
+-- Expected result:
+-- USES: 18 | OVERSEES: 14 | COMMANDS: 5 (Total: 37)
+
+-- 3. Inspect full 1-hop graph traversals (Source -> Relationship -> Target)
+SELECT 
+  s.label AS source_node, 
+  s.kind  AS source_kind,
+  e.rel_type,
+  t.label AS target_node,
+  t.kind  AS target_kind
+FROM edges e
+JOIN entities s ON e.source_id = s.id
+JOIN entities t ON e.target_id = t.id
+ORDER BY s.kind, e.rel_type;
+
+-- 4. Verify table storage and indexes in PostgreSQL
+SELECT tablename, indexname 
+FROM pg_indexes 
+WHERE schemaname = 'public' 
+ORDER BY tablename;
+
+
+================================================================================
+7. NEXT.JS DEV SERVER & RUNTIME HEALTH CHECKS
+================================================================================
+
+1. Start Dev Server:
+   npm run dev
+
+2. Open Browser:
+   http://localhost:3000
+
+3. Verify Frontend Status:
+   - Header Pill: "PG: Live Connected" with pulsing green indicator.
+   - Browser Console (F12): Look for:
+     "[GraphOS DB] source: live-postgres | nodes: 28 | edges: 37"
+
+4. API Direct Test (curl or browser):
+   URL: http://localhost:3000/api/graph/all
+   JSON Response Header:
+   {
+     "nodes": [...],
+     "edges": [...],
+     "source": "live-postgres"
+   }
+
+
+================================================================================
+8. TROUBLESHOOTING & COMMON ERROR FIXES
+================================================================================
+
+[Error 1]: FATAL: password authentication failed for user "graphos"
+  Fix: Open PowerShell as Administrator, launch psql as postgres, and run:
+       ALTER ROLE graphos WITH PASSWORD 'Password@123';
+
+[Error 2]: relation "entities" does not exist (Error 42P01)
+  Fix: The database is empty. Run the seeding script to create and populate:
+       npx tsx scripts/seed-live.ts
+
+[Error 3]: relation "idx_edges_target" already exists, skipping
+  Status: Informational notice, not an error. Safe to ignore (the index exists).
+
+[Error 4]: Fallback topology loaded ("source: fallback-topology")
+  Fix: Verify .env.local has the correct DATABASE_URL and that the PostgreSQL
+       service is running (Get-Service postgresql* in PowerShell).
+
+================================================================================
+ END OF RUNBOOK
+================================================================================

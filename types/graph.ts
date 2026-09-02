@@ -1,42 +1,49 @@
-import type { SimulationNodeDatum } from 'd3-force';
-
 export type NodeKind = 'core' | 'pillar' | 'agent' | 'task' | 'tool' | 'human';
 
-export interface GraphNode {
+export interface EntityData {
   id: string;
   label: string;
   kind: NodeKind;
-  val: number;
+  val?: number;
   color?: string;
-  x?: number;
-  y?: number;
-  vx?: number;
-  vy?: number;
-  fx?: number | null;
-  fy?: number | null;
+  status?: string;
+  detail?: string;
+  metadata?: Record<string, unknown>;
+  isExpanded?: boolean;
+  hasChildren?: boolean;
 }
 
-export interface GraphLink {
+export interface GraphEdge {
   source: string;
   target: string;
-  label?: string;
+  relType?: string;
 }
 
-export interface SimGraphNode extends SimulationNodeDatum {
+export interface GraphApiResponse {
+  nodes: EntityData[];
+  edges: GraphEdge[];
+  source?: string;
+}
+
+// ── User & Project Models ───────────────────────────────────────
+
+export interface UserEntity {
   id: string;
-  label: string;
-  kind: NodeKind;
-  val: number;
-  color?: string;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
+  name: string;
+  email: string;
+  role: string;
+  avatar?: string;
+  createdAt?: string;
+  project?: ProjectEntity | null;
 }
 
-export interface SimLink {
-  source: SimGraphNode;
-  target: SimGraphNode;
-  label?: string;
-  index: number;
+export interface ProjectEntity {
+  id: string;
+  name: string;
+  deadline: string;
+  description: string;
+  status?: 'Planning' | 'Active' | 'In Review' | 'Completed' | 'Critical';
+  userId?: string;
+  createdAt?: string;
+  topologyRootId?: string;
 }
