@@ -1,8 +1,7 @@
-# Neo4j Graph Schema — IoT Cyber Security Mesh
+# Graph Schema & Relationship Topology — Apache AGE / PostgreSQL
 
-This document defines the Neo4j graph schema used by VeracTopology for relationship traversal.
-Neo4j is **not** the source of truth for entity data — that lives in Postgres/Supabase.
-Neo4j stores only node IDs (matching Postgres PKs) and typed relationships.
+This document defines the graph relationship schema used by GraphOS for topological traversal.
+Entity data lives in the PostgreSQL `entities` table (or within the Apache AGE graph `graphos`).
 
 ---
 
@@ -10,9 +9,7 @@ Neo4j stores only node IDs (matching Postgres PKs) and typed relationships.
 
 | Label    | Maps to Postgres Table | Stored Properties          | Notes                                           |
 | :------- | :--------------------- | :------------------------- | :---------------------------------------------- |
-| `Entity` | `entities`             | `id` (TEXT, indexed, UUID) | Single label for all node types. The `kind` field lives only in Postgres. |
-
-> **Design decision**: A single `Entity` label (rather than separate `Core`, `Pillar`, `Agent`, etc.) keeps the Cypher queries simple and the index uniform. Filtering by kind is done after hydration from Postgres.
+| `Entity` | `entities`             | `id` (TEXT, indexed, PK)   | Single uniform label for all node kinds.        |
 
 ---
 
@@ -40,35 +37,14 @@ The relationship type is derived from the `kind` of source and target nodes:
 
 ---
 
-## Indexes
+## Relational Schema vs Apache AGE Graph
 
-```cypher
-CREATE INDEX entity_id_index IF NOT EXISTS FOR (n:Entity) ON (n.id)
-```
+GraphOS supports two execution modes:
 
-This ensures all `MATCH (n:Entity {id: $nodeId})` queries use `NodeUniqueIndexSeek` rather than `NodeByLabelScan`.
+1. **PostgreSQL Relational Tables (Default / Active Mode)**:
+   - Nodes stored in `entities` table.
+   - Relationships stored in `edges` table (`source_id`, `target_id`, `rel_type`).
+   - Fast standard SQL queries with indexed foreign keys.
 
----
-
-## Example Queries
-
-### Neighborhood traversal (used by `/api/graph/[nodeId]`)
-```cypher
-MATCH (n:Entity {id: $nodeId})-[r]-(m:Entity)
-RETURN n.id AS source, m.id AS target, type(r) AS relType
-LIMIT 200
-```
-
-### Full graph export (admin/debug only)
-```cypher
-MATCH (n:Entity)-[r]->(m:Entity)
-RETURN n.id AS source, m.id AS target, type(r) AS relType
-```
-
-### Blast radius analysis (future feature)
-```cypher
-MATCH path = (compromised:Entity {id: $nodeId})-[*1..3]-(affected:Entity)
-RETURN DISTINCT affected.id AS affectedId, length(path) AS hops
-ORDER BY hops
-LIMIT 100
-```
+2. **Apache AGE OpenCypher Graph (Advanced Mode)**:
+   - When Apache AGE is enabled on PostgreSQL, OpenCypher queries (`MATCH`, `CREATE`, `MERGE`) execute inside `lib/age.ts`.

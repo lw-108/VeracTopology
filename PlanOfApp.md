@@ -87,7 +87,7 @@ graph TD
 - Built in-memory fallback topology (`lib/default-topology.ts`) guaranteeing zero UI downtime when remote databases are offline.
 
 ### Phase 5 (v2.0): Unified PostgreSQL + Apache AGE Architecture Plan
-- **Architecture Strategy Shift**: Updated system plan to consolidate databases fully into **PostgreSQL + Apache AGE** ([`docs/NEO4J_TO_APACHE_AGE_MIGRATION_MANUAL.md`](file:///c:/Users/linge/Downloads/GraphOS-main/GraphOS-main/docs/NEO4J_TO_APACHE_AGE_MIGRATION_MANUAL.md)).
+- **Architecture Strategy Shift**: Consolidated database engine fully into **PostgreSQL + Apache AGE** to eliminate external graph licensing overhead.
 - **Unified Driver Implementation**: Standardized backend query execution on `lib/age.ts`.
 - **Seeding Pipeline Update**: Standardized graph initialization on `scripts/seed-age.ts`.
 - **Serverless Cloud Configuration**: Configured `netlify.toml` for Netlify Next.js App Router deployment.
@@ -219,7 +219,6 @@ GraphOS-main/
 │   └── ui/                     # Accessible Radix UI design system primitives
 ├── docs/                       # Architectural & Technical Manuals
 │   ├── DATABASE_ARCHITECTURE_AND_HYBRID_ROUTING_POLICY.md
-│   ├── NEO4J_TO_APACHE_AGE_MIGRATION_MANUAL.md
 │   ├── POSTGRES_APACHE_AGE_EVALUATION_AND_GUIDE.md
 │   ├── graph-schema.md
 │   └── postgres-schema.sql
