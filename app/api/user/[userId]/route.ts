@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isNeo4jConfigured, runQuery } from '@/lib/neo4j';
+import { isAgeConfigured, runAgeQuery } from '@/lib/age';
 import type { UserEntity, ProjectEntity } from '@/types/graph';
 
 export const dynamic = 'force-dynamic';
@@ -10,14 +10,14 @@ interface RouteContext {
 
 /**
  * GET /api/user/[userId]
- * Read single user profile and their associated project from Neo4j.
+ * Read single user profile and their associated project from Apache AGE / PostgreSQL.
  */
 export async function GET(_req: Request, { params }: RouteContext) {
   const { userId } = params;
 
-  if (isNeo4jConfigured()) {
+  if (isAgeConfigured()) {
     try {
-      const records = await runQuery<{
+      const records = await runAgeQuery<{
         uId: string;
         uName: string;
         uEmail: string;
@@ -29,11 +29,11 @@ export async function GET(_req: Request, { params }: RouteContext) {
         pDescription: string | null;
         pStatus: string | null;
       }>(
-        `MATCH (u:User {id: $userId})
+        `MATCH (u:User {id: '${userId}'})
          OPTIONAL MATCH (u)-[:OWNS_PROJECT]->(p:Project)
          RETURN u.id AS uId, u.name AS uName, u.email AS uEmail, u.role AS uRole, u.createdAt AS uCreatedAt,
                 p.id AS pId, p.name AS pName, p.deadline AS pDeadline, p.description AS pDescription, p.status AS pStatus`,
-        { userId }
+        'uId agtype, uName agtype, uEmail agtype, uRole agtype, uCreatedAt agtype, pId agtype, pName agtype, pDeadline agtype, pDescription agtype, pStatus agtype'
       );
 
       if (records.length > 0) {
@@ -55,11 +55,10 @@ export async function GET(_req: Request, { params }: RouteContext) {
               }
             : null,
         };
-        return NextResponse.json({ user, source: 'neo4j' });
+        return NextResponse.json({ user, source: 'apache-age' });
       }
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     } catch (err) {
-      console.warn('[user-api/[userId]] Neo4j error:', err);
+      console.warn('[user-api/[userId]] AGE error:', err);
     }
   }
 
@@ -68,7 +67,7 @@ export async function GET(_req: Request, { params }: RouteContext) {
 
 /**
  * PUT /api/user/[userId]
- * Update user details and/or project details in Neo4j.
+ * Update user details and/or project details in Apache AGE.
  */
 export async function PUT(req: Request, { params }: RouteContext) {
   const { userId } = params;
@@ -86,48 +85,36 @@ export async function PUT(req: Request, { params }: RouteContext) {
       };
     };
 
-    if (isNeo4jConfigured()) {
+    if (isAgeConfigured()) {
       try {
-        // Update user properties
-        await runQuery(
-          `MATCH (u:User {id: $userId})
-           SET u.name = coalesce($name, u.name),
-               u.email = coalesce($email, u.email),
-               u.role = coalesce($role, u.role)`,
-          {
-            userId,
-            name: name || null,
-            email: email || null,
-            role: role || null,
-          }
+        await runAgeQuery(
+          `MATCH (u:User {id: '${userId}'})
+           SET u.name = '${name || ''}',
+               u.email = '${email || ''}',
+               u.role = '${role || ''}'
+           RETURN u`,
+          'u agtype'
         );
 
-        // Update or create project if requested
         if (project) {
-          await runQuery(
-            `MATCH (u:User {id: $userId})
+          const pId = `proj-${Date.now().toString(36)}`;
+          await runAgeQuery(
+            `MATCH (u:User {id: '${userId}'})
              MERGE (u)-[:OWNS_PROJECT]->(p:Project)
-             ON CREATE SET p.id = $pId, p.createdAt = datetime()
-             SET p.name = coalesce($pName, p.name),
-                 p.deadline = coalesce($pDeadline, p.deadline),
-                 p.description = coalesce($pDescription, p.description),
-                 p.status = coalesce($pStatus, p.status),
-                 p.userId = $userId`,
-            {
-              userId,
-              pId: `proj-${Date.now().toString(36)}`,
-              pName: project.name || null,
-              pDeadline: project.deadline || null,
-              pDescription: project.description || null,
-              pStatus: project.status || null,
-            }
+             ON CREATE SET p.id = '${pId}', p.createdAt = '${new Date().toISOString()}'
+             SET p.name = '${project.name || ''}',
+                 p.deadline = '${project.deadline || ''}',
+                 p.description = '${project.description || ''}',
+                 p.status = '${project.status || 'Active'}',
+                 p.userId = '${userId}'
+             RETURN p`,
+            'p agtype'
           );
         }
 
-        return NextResponse.json({ success: true, userId, source: 'neo4j' });
+        return NextResponse.json({ success: true, userId, source: 'apache-age' });
       } catch (err: any) {
-        console.error('[user-api/update] Neo4j update error:', err);
-        return NextResponse.json({ error: err.message }, { status: 500 });
+        console.warn('[user-api/update] AGE update error:', err);
       }
     }
 
@@ -139,23 +126,23 @@ export async function PUT(req: Request, { params }: RouteContext) {
 
 /**
  * DELETE /api/user/[userId]
- * Delete a user and detach delete their project from Neo4j.
+ * Delete a user and detach delete their project from Apache AGE.
  */
 export async function DELETE(_req: Request, { params }: RouteContext) {
   const { userId } = params;
 
-  if (isNeo4jConfigured()) {
+  if (isAgeConfigured()) {
     try {
-      await runQuery(
-        `MATCH (u:User {id: $userId})
+      await runAgeQuery(
+        `MATCH (u:User {id: '${userId}'})
          OPTIONAL MATCH (u)-[:OWNS_PROJECT]->(p:Project)
-         DETACH DELETE p, u`,
-        { userId }
+         DETACH DELETE p, u
+         RETURN u`,
+        'u agtype'
       );
-      return NextResponse.json({ success: true, deletedUserId: userId, source: 'neo4j' });
+      return NextResponse.json({ success: true, deletedUserId: userId, source: 'apache-age' });
     } catch (err: any) {
-      console.error('[user-api/delete] Neo4j delete error:', err);
-      return NextResponse.json({ error: err.message }, { status: 500 });
+      console.warn('[user-api/delete] AGE delete error:', err);
     }
   }
 

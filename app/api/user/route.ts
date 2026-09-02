@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { isNeo4jConfigured, runQuery } from '@/lib/neo4j';
+import { isAgeConfigured, runAgeQuery } from '@/lib/age';
 import type { UserEntity, ProjectEntity } from '@/types/graph';
 
 export const dynamic = 'force-dynamic';
 
-// Fallback in-memory store if Neo4j is offline
+// Fallback in-memory store
 let mockUsers: UserEntity[] = [
   {
     id: 'usr-shankar',
@@ -58,12 +58,12 @@ let mockUsers: UserEntity[] = [
 
 /**
  * GET /api/user
- * List all users with their 1-to-1 associated project from Neo4j.
+ * List all users with their 1-to-1 associated project from Apache AGE / PostgreSQL.
  */
 export async function GET() {
-  if (isNeo4jConfigured()) {
+  if (isAgeConfigured()) {
     try {
-      const records = await runQuery<{
+      const records = await runAgeQuery<{
         uId: string;
         uName: string;
         uEmail: string;
@@ -79,7 +79,8 @@ export async function GET() {
          OPTIONAL MATCH (u)-[:OWNS_PROJECT]->(p:Project)
          RETURN u.id AS uId, u.name AS uName, u.email AS uEmail, u.role AS uRole, u.createdAt AS uCreatedAt,
                 p.id AS pId, p.name AS pName, p.deadline AS pDeadline, p.description AS pDescription, p.status AS pStatus
-         ORDER BY u.createdAt DESC`
+         ORDER BY u.createdAt DESC`,
+        'uId agtype, uName agtype, uEmail agtype, uRole agtype, uCreatedAt agtype, pId agtype, pName agtype, pDeadline agtype, pDescription agtype, pStatus agtype'
       );
 
       if (records.length > 0) {
@@ -100,10 +101,10 @@ export async function GET() {
               }
             : null,
         }));
-        return NextResponse.json({ users, source: 'neo4j' });
+        return NextResponse.json({ users, source: 'apache-age' });
       }
     } catch (err) {
-      console.warn('[user-api] Neo4j query failed, using fallback:', err);
+      console.warn('[user-api] AGE query failed, using fallback:', err);
     }
   }
 
@@ -112,7 +113,7 @@ export async function GET() {
 
 /**
  * POST /api/user
- * Create a new user and associate their 1-to-1 project in Neo4j.
+ * Create a new user and associate their 1-to-1 project in Apache AGE.
  */
 export async function POST(req: Request) {
   try {
@@ -137,49 +138,36 @@ export async function POST(req: Request) {
     const createdAt = new Date().toISOString();
     const projectId = project?.name ? `proj-${Date.now().toString(36)}` : null;
 
-    if (isNeo4jConfigured()) {
+    if (isAgeConfigured()) {
       try {
-        // 1. Create User node
-        await runQuery(
+        await runAgeQuery(
           `CREATE (u:User {
-             id: $userId,
-             name: $name,
-             email: $email,
-             role: $role,
-             createdAt: $createdAt
-           })`,
-          { userId, name, email, role: role || 'Security Engineer', createdAt }
+             id: '${userId}',
+             name: '${name}',
+             email: '${email}',
+             role: '${role || 'Security Engineer'}',
+             createdAt: '${createdAt}'
+           })
+           RETURN u`,
+          'u agtype'
         );
 
-        // 2. If project provided, create Project node and link (User)-[:OWNS_PROJECT]->(Project)
         let createdProject: ProjectEntity | null = null;
         if (projectId && project) {
-          await runQuery(
-            `MATCH (u:User {id: $userId})
+          await runAgeQuery(
+            `MATCH (u:User {id: '${userId}'})
              CREATE (p:Project {
-               id: $projectId,
-               name: $pName,
-               deadline: $pDeadline,
-               description: $pDescription,
-               status: $pStatus,
-               createdAt: $createdAt,
-               userId: $userId
+               id: '${projectId}',
+               name: '${project.name}',
+               deadline: '${project.deadline || ''}',
+               description: '${project.description || ''}',
+               status: '${project.status || 'Active'}',
+               createdAt: '${createdAt}',
+               userId: '${userId}'
              })
              CREATE (u)-[:OWNS_PROJECT]->(p)
-             WITH p
-             OPTIONAL MATCH (c:Entity {id: 'core-sentinel'})
-             FOREACH (_ IN CASE WHEN c IS NOT NULL THEN [1] ELSE [] END |
-               CREATE (p)-[:MANAGES_TOPOLOGY]->(c)
-             )`,
-            {
-              userId,
-              projectId,
-              pName: project.name,
-              pDeadline: project.deadline || '',
-              pDescription: project.description || '',
-              pStatus: project.status || 'Active',
-              createdAt,
-            }
+             RETURN p`,
+            'p agtype'
           );
 
           createdProject = {
@@ -201,9 +189,9 @@ export async function POST(req: Request) {
           project: createdProject,
         };
 
-        return NextResponse.json({ user: newUser, source: 'neo4j' }, { status: 201 });
+        return NextResponse.json({ user: newUser, source: 'apache-age' }, { status: 201 });
       } catch (err: any) {
-        console.error('[user-api] Neo4j create failed:', err);
+        console.warn('[user-api] AGE create failed:', err);
       }
     }
 

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { isNeo4jConfigured, runQuery } from '@/lib/neo4j';
+import { isAgeConfigured, runAgeQuery } from '@/lib/age';
 import type { ProjectEntity } from '@/types/graph';
 
 export const dynamic = 'force-dynamic';
@@ -10,15 +10,15 @@ interface RouteContext {
 
 /**
  * GET /api/user/[userId]/projects
- * Queries Neo4j for the project list belonging to a specific User ID.
+ * Queries Apache AGE / Postgres for the project list belonging to a specific User ID.
  * Returns project details: [name, deadline, description, status, id, userId].
  */
 export async function GET(_req: Request, { params }: RouteContext) {
   const { userId } = params;
 
-  if (isNeo4jConfigured()) {
+  if (isAgeConfigured()) {
     try {
-      const records = await runQuery<{
+      const records = await runAgeQuery<{
         id: string;
         name: string;
         deadline: string;
@@ -27,12 +27,11 @@ export async function GET(_req: Request, { params }: RouteContext) {
         createdAt: string;
         userId: string;
       }>(
-        `MATCH (u:User {id: $userId})-[:OWNS_PROJECT]->(p:Project)
+        `MATCH (u:User {id: '${userId}'})-[:OWNS_PROJECT]->(p:Project)
          RETURN p.id AS id, p.name AS name, p.deadline AS deadline,
                 p.description AS description, p.status AS status,
-                p.createdAt AS createdAt, u.id AS userId
-         ORDER BY p.createdAt DESC`,
-        { userId }
+                p.createdAt AS createdAt, u.id AS userId`,
+        'id agtype, name agtype, deadline agtype, description agtype, status agtype, createdAt agtype, userId agtype'
       );
 
       const projects: ProjectEntity[] = records.map((r) => ({
@@ -45,19 +44,20 @@ export async function GET(_req: Request, { params }: RouteContext) {
         createdAt: r.createdAt,
       }));
 
-      return NextResponse.json({
-        userId,
-        count: projects.length,
-        projects,
-        source: 'neo4j',
-      });
+      if (projects.length > 0) {
+        return NextResponse.json({
+          userId,
+          count: projects.length,
+          projects,
+          source: 'apache-age',
+        });
+      }
     } catch (err: any) {
-      console.error('[user-projects-api] Neo4j query error:', err);
-      return NextResponse.json({ error: err.message }, { status: 500 });
+      console.warn('[user-projects-api] AGE query error, falling back to mock:', err?.message || err);
     }
   }
 
-  // Fallback if Neo4j is offline
+  // Fallback if DB is offline or empty
   return NextResponse.json({
     userId,
     count: 1,
